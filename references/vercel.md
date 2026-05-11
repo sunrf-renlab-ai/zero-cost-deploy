@@ -109,7 +109,89 @@ When you import a repo named `foo`, Vercel tries to create a project at `foo.ver
 Options:
 - **Accept the suffix** — totally fine for prototypes, the production alias works.
 - **Rename** post-import: Project Settings → General → Project Name. Updates URLs.
-- **Custom domain**: Settings → Domains → add your own. Vercel issues a cert in ~1 min.
+- **Custom domain**: see next section.
+
+## Custom domain — DNS + verification + SSL
+
+Three moving pieces: registrar, DNS, Vercel project. Order matters: DNS first, then Vercel.
+
+### 1. DNS record at your host
+
+For a **subdomain** (`pair.example.com`):
+
+| Type | Name | Value | TTL |
+|---|---|---|---|
+| CNAME | `pair` | `cname.vercel-dns.com` | 300 |
+
+For an **apex / naked domain** (`example.com`), most DNS hosts don't allow CNAME at the root. Three options:
+- **ALIAS / ANAME** record (Cloudflare, Route 53, DNSimple support this — points to `cname.vercel-dns.com`).
+- **Flattened CNAME** (Cloudflare proxies the lookup so apex effectively becomes CNAME-able).
+- **Plain A record** to Vercel's anycast IP (`76.76.21.21` at time of writing — Vercel's docs have the current set).
+
+Verify the record propagated **from an external resolver** before continuing:
+
+```bash
+dig @1.1.1.1 +short pair.example.com CNAME
+# → cname.vercel-dns.com.
+```
+
+(If your laptop is behind Clash/Mihomo with fakeip, local `dig` will lie. Use https://dnschecker.org/#CNAME/pair.example.com to confirm.)
+
+### 2. Add domain in Vercel
+
+Project → Settings → Domains → search box → type FQDN → **Add Existing** → confirm in dialog → **Save**.
+
+Vercel does two things in sequence:
+1. **Verify CNAME** by querying its own resolvers (not yours). Usually < 30 s.
+2. **Provision Let's Encrypt SSL cert**. Usually 30–90 s after verification.
+
+While waiting you'll see "Verification Needed" → "Pending" → "Valid Configuration". The Refresh button forces a re-check.
+
+### 3. Wire it up
+
+Once Valid:
+- **Set as Primary** (click the domain → menu → Set as Primary) so all other aliases 308-redirect to it.
+- Update `NEXT_PUBLIC_SITE_URL` (and any equivalents — `metadataBase`, OAuth redirect URLs in Supabase, etc.) to the new domain. Redeploy so absolute URLs are correct.
+- Update Supabase Auth → URL Configuration → Site URL + Redirect URLs.
+
+### Apex + www together
+
+Common pattern: serve at `example.com`, redirect `www.example.com → example.com` (or vice versa).
+
+In Vercel: add both domains. For the redirect one, click → **Redirect to** → enter the primary, choose 308 Permanent.
+
+### Automating via Vercel API
+
+```bash
+# Add domain
+curl -X POST \
+  -H "Authorization: Bearer $VERCEL_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://api.vercel.com/v10/projects/$PROJECT_ID/domains" \
+  -d '{"name":"pair.example.com"}'
+
+# Poll verification status
+curl -H "Authorization: Bearer $VERCEL_TOKEN" \
+  "https://api.vercel.com/v9/projects/$PROJECT_ID/domains/pair.example.com" \
+  | jq '{verified, verification, gitBranch}'
+
+# Force re-verification
+curl -X POST \
+  -H "Authorization: Bearer $VERCEL_TOKEN" \
+  "https://api.vercel.com/v9/projects/$PROJECT_ID/domains/pair.example.com/verify"
+```
+
+`scripts/vercel-add-domain.sh` wraps these calls.
+
+### Gotchas
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Verification Needed" stuck > 10 min | CNAME hasn't propagated, or there's a conflicting A/AAAA at the same name | Confirm via `dig @1.1.1.1`; remove conflicting records |
+| SSL cert pending forever after verification | Domain has CAA records that block Let's Encrypt | Add a CAA `0 issue "letsencrypt.org"` record at registrar |
+| `curl https://your-domain` fails from your laptop, works on phone | Your laptop is behind a TUN-mode proxy returning fakeip (Clash/Mihomo) | Bypass proxy for the domain, or use `curl --resolve` with the real IP from `dig @1.1.1.1` |
+| OAuth callback "Site URL mismatch" after switching to custom domain | Forgot to update Supabase Auth → URL Configuration | Add new domain to Site URL + Redirect URLs |
+| Old `*.vercel.app` URL still indexed by Google | Aliases keep working but redirect 308 to primary; you can also robots-block them | Set primary domain; Vercel auto-redirects |
 
 ## Preview URL 401 vs production URL 200
 

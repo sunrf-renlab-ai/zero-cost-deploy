@@ -257,6 +257,45 @@ After deploy:
 - `<project>-<random>.vercel.app` — unique deployment URL (preview, may 401 on private deployments)
 - `<project>.vercel.app` — production alias (the public URL)
 
+### Custom domain (optional, ~5 min)
+
+The auto-generated `<project>-<suffix>.vercel.app` URL is fine for a prototype but ugly for real users. Bring your own domain:
+
+1. **At your DNS host** (Cloudflare / Route 53 / Namecheap / etc.) — add a CNAME:
+
+   | Type | Name | Value | TTL |
+   |---|---|---|---|
+   | CNAME | `pair` (subdomain) or `@` (apex) | `cname.vercel-dns.com` | 300 |
+
+   Apex / naked domains: many DNS hosts don't allow CNAME at the root. Use an `ALIAS` / `ANAME` record instead, or use a flattened-CNAME provider like Cloudflare. Vercel also provides `A` records (`76.76.21.21`) if you must use plain A — check Vercel's docs for the current IP set.
+
+2. **In Vercel** — Project → Settings → Domains → **Add** → enter the FQDN (e.g., `pair.renlab.ai`) → Save.
+
+   Vercel auto-verifies the CNAME from its own resolvers (not yours), then provisions an SSL cert. Verification + cert: usually 60–120 s. If your local DNS goes through a TUN proxy (Clash/Mihomo), you won't be able to `curl` the domain from your laptop until you bypass the proxy — but Vercel's check still passes.
+
+3. **Watch for "Verification Needed"** — clears automatically once Vercel sees the CNAME. If it sits longer than ~10 min:
+   - Confirm CNAME with an external resolver: https://dnschecker.org/#CNAME/pair.example.com
+   - Check for conflicting records (existing A or AAAA at the same name takes precedence over CNAME).
+   - Click **Refresh** in the Vercel UI to force a re-check.
+
+4. **Update `NEXT_PUBLIC_SITE_URL`** (and equivalent env vars) in Vercel to the new domain, then redeploy so absolute links + OG metadata point at the canonical host.
+
+5. **Set the primary domain** — Settings → Domains → click the domain → **Set as Primary**. Vercel now 308-redirects all other aliases to it.
+
+Cost: ~$10/year for a `.com` / `.ai` / etc. — paid to your registrar, not Vercel.
+
+#### Automating via Vercel API (optional)
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $VERCEL_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://api.vercel.com/v10/projects/$PROJECT_ID/domains" \
+  -d '{"name":"pair.renlab.ai"}'
+```
+
+Adds the domain + kicks off verification. Polling endpoint: `GET /v9/projects/$PROJECT_ID/domains/pair.renlab.ai` returns `{verified: true|false, ...}`.
+
 ---
 
 ## ⑤ Smoke test
@@ -396,6 +435,7 @@ zero-cost-deploy/
 │   ├── supabase-verify-tables.sh           # Check tables + RLS via API
 │   ├── upstash-create-redis.sh             # Create DB via Management API
 │   ├── verify-deploy.sh                    # Post-deploy smoke check
+│   ├── vercel-add-domain.sh                # Add custom domain + poll verification
 │   └── rotate-secrets.md                   # Step-by-step rotation
 └── templates/
     ├── render.yaml                         # Generic Bun/Node Blueprint

@@ -243,10 +243,57 @@ git push origin v0.1.0
 - Registrar caches independently of TTL.
 
 **Fix:**
-- Verify with `dig <yourdomain> +short` from multiple networks (use https://dnschecker.org).
+- Verify with `dig @1.1.1.1 +short <yourdomain>` from an external resolver (use https://dnschecker.org if your local network is suspect).
 - Clear conflicting records.
 - Lower TTL to 300 s before the next change.
 - Wait — sometimes propagation just takes a while.
+
+---
+
+### "Verification Needed" stuck in Vercel after CNAME is correct
+
+**Symptom:** Vercel Domains page shows your custom domain in "Verification Needed" state for > 5 min, even though `dig @1.1.1.1 +short yourdomain CNAME` clearly returns `cname.vercel-dns.com.`.
+
+**Cause:** Usually one of:
+- A conflicting A or AAAA record at the same name takes precedence over the CNAME.
+- Vercel's resolver is rate-limited / caching old NXDOMAIN.
+- The CNAME points to a wrong target (e.g., `cname.vercel-dns.com.com` with typo, or a stale `<sha>.vercel.app`).
+
+**Fix:**
+1. `dig @1.1.1.1 +short yourdomain A AAAA CNAME` — if you see A/AAAA + CNAME together, delete the A/AAAA.
+2. Click **Refresh** in the Vercel UI, or hit `POST /v9/projects/$PID/domains/$DOMAIN/verify` via the API.
+3. If still stuck after 20 min, remove + re-add the domain.
+
+---
+
+### `curl https://yourdomain` fails from laptop, works from phone
+
+**Symptom:** Vercel says the domain is Valid; loading it in a browser on your phone works; `curl` from your laptop hangs or fails with `SSL_ERROR_SYSCALL`.
+
+**Cause:** Your laptop is behind a TUN-mode proxy (Clash/Mihomo with fakeip). Local DNS returns `198.18.x.x` which doesn't route to the real Vercel anycast.
+
+**Fix:** Either disable the proxy for the domain, or curl with an explicit resolve:
+
+```bash
+REAL_IP=$(dig @1.1.1.1 +short yourdomain | head -1)
+curl --resolve "yourdomain:443:$REAL_IP" https://yourdomain/
+```
+
+---
+
+### SSL cert never provisions after Vercel says "Valid Configuration"
+
+**Symptom:** DNS verified, "Valid Configuration" green, but `https://` returns SSL error or "no certificate" for 10+ min.
+
+**Cause:** Your registrar has CAA records that block Let's Encrypt from issuing.
+
+**Fix:** Add a CAA record at the registrar:
+
+```
+yourdomain. CAA 0 issue "letsencrypt.org"
+```
+
+Wait 5 min for Vercel to retry. Vercel will auto-issue once CAA allows.
 
 ---
 
