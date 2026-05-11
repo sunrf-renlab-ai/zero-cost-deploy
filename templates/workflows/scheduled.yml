@@ -1,0 +1,34 @@
+name: Scheduled jobs
+
+# GitHub Actions schedules — use these for anything sub-daily, since Vercel
+# Hobby only allows daily cron. Public repos: unlimited free runs.
+# Private repos: 2,000 min/month; trivial pings cost ~5 s each.
+
+on:
+  schedule:
+    # Keep Render free service warm — ping /healthz every 13 minutes.
+    # Render sleeps after 15 min idle; 13 keeps it warm with margin.
+    - cron: "*/13 * * * *"
+  workflow_dispatch:
+
+jobs:
+  warm-orchestrator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Render healthcheck
+        run: |
+          curl -sf --max-time 90 \
+            "${{ vars.ORCHESTRATOR_URL }}/healthz" \
+            && echo "ok" \
+            || echo "failed (probably cold start, will recover on next tick)"
+
+  # Example: run a Vercel cron-style endpoint more frequently than daily
+  # frequent-cron:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - name: Trigger app cron endpoint
+  #       run: |
+  #         curl -sfL "${{ vars.WEB_URL }}/api/cron/process-queue" \
+  #           -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

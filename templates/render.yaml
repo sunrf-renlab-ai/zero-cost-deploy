@@ -1,0 +1,57 @@
+# Render Blueprint — generic web service template
+#
+# Place at the repo root and "Apply Blueprint" via Render dashboard.
+# Replace the placeholder names + region + healthcheck path with your own.
+#
+# After Apply: ALWAYS verify env vars saved (Service → Environment → Edit each).
+# The Blueprint flow has a known bug where sync:false values silently fail to save.
+
+services:
+  - type: web
+    name: my-service              # Change this
+    runtime: docker
+    region: oregon                # oregon | ohio | virginia | frankfurt | singapore
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true              # Deploy on every push to the connected branch
+    envVars:
+      # Non-secret values — baked into render.yaml, version-controlled
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: PORT
+        value: 8080                # Render injects PORT but app may want explicit default
+
+      # Secrets — Render prompts during Blueprint apply, then stores encrypted
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: INTERNAL_RPC_TOKEN
+        sync: false
+      - key: APP_ENCRYPTION_KEY
+        sync: false
+      # Add more as your app needs
+
+# Background workers + cron jobs (uncomment if needed)
+#  - type: worker
+#    name: my-worker
+#    runtime: docker
+#    region: oregon
+#    plan: free
+#    dockerfilePath: ./Dockerfile.worker
+#    autoDeploy: true
+#    envVars:
+#      - fromService:
+#          name: my-service
+#          envVarKey: SUPABASE_URL
+#          type: web
+
+# Database (DON'T use Render's free Postgres — it disappears after 90 days)
+# Use Supabase instead.
