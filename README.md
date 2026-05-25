@@ -1,127 +1,144 @@
 # zero-cost-deploy
 
-A Claude Code skill (and human-readable playbook) for shipping a web app to production for **$0/month** on Vercel + Render + Supabase + Upstash free tiers.
+> Ship a web app to production for **$0/month** on **Vercel + Render + Supabase + Upstash** free tiers. A Claude Code / Agent Skill (also a human-readable playbook) with every gotcha documented — Hobby cron limits, Blueprint env-loss, `supabase db push` 5432 timeout, ClipboardEvent paste trick, Vercel CLI `Must not contain "***"` in CI, and 20+ more.
 
-> **MCP-first.** Uses the official Supabase / Vercel / GitHub MCP servers when available, falls back to bare HTTPS Management APIs for Render + Upstash (no MCP yet).
-
-Encodes every form, every secret-handling pattern, every weird-network workaround, and every gotcha that has actually broken a real first-time deploy.
-
-## Who this is for
-
-- Indie hackers shipping a side project on a Friday night.
-- Open-source maintainers who want a public demo without a hosting bill.
-- Teams prototyping before committing to paid infra.
-- **AI agents (this is a skill)** that need a reliable deploy playbook.
-
-## Install — Claude Code
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Agent Skills spec](https://img.shields.io/badge/spec-agentskills.io-0a7-blue)](https://agentskills.io/specification) [![MCP-first](https://img.shields.io/badge/MCP-first-purple)](https://modelcontextprotocol.io/)
 
 ```bash
-git clone git@github.com:sunrf-renlab-ai/zero-cost-deploy.git ~/.claude/skills/zero-cost-deploy
+git clone https://github.com/sunrf-renlab-ai/zero-cost-deploy ~/.claude/skills/zero-cost-deploy
 ```
 
-Claude Code auto-discovers skills under `~/.claude/skills/`. Next time you say "deploy this" / "ship to prod" / "免费上线", the skill activates.
+Claude Code auto-discovers it. Next time you say **"deploy this"** / **"ship to prod"** / **"免费上线"**, the skill activates. Works in Cursor, Cline, Continue, OpenClaw, and any agent that follows the [Agent Skills spec](https://agentskills.io/specification).
 
-## Install — Cursor / Cline / Continue / other MCP clients
+---
 
-Same clone, then either:
-- Symlink the directory into your client's skill/instruction path
-- Or point your client's instruction file at `SKILL.md` and the references
+## Use this when
 
-The skill itself uses MCP tools (`mcp__plugin_supabase_supabase__*`, etc.) — install the equivalent MCP servers in your client.
+You're hitting any of these — or about to wire a fresh free-tier prod stack first time:
 
-## Use without Claude (humans only)
+- 🟥 **`Hobby accounts are limited to daily cron jobs`** — Vercel rejects your deploy
+- 🟥 **`tls error (EOF)`** on `supabase db push` (Clash/Mihomo fakeip blocks port 5432)
+- 🟥 **`Error: must not contain "***"`** — Vercel CLI in GitHub Actions
+- 🟥 **`Authorization header is badly formatted`** — GitHub MCP refusing to connect
+- 🟥 **Render Blueprint apply** completes, then service crashes on missing env
+- 🟥 **GitHub OAuth Authorize button** stays disabled 2-4 s after page load; JS clicks ignored
+- 🟥 **`sb_publishable_*` rejected** by older `@supabase/supabase-js`
+- 🟥 **Vercel env paste form** swallows your values when scripted
 
-Read `SKILL.md` top to bottom — it's the playbook. Then:
+…or the broader "I want to deploy free but every tutorial handwaves the broken parts."
 
-1. `scripts/gen-secrets.sh` → generate randoms.
-2. Walk through ① Supabase → ② Upstash → ③ Render → ④ Vercel → ⑤ smoke test.
-3. `scripts/rotate-secrets.md` if anything leaked to terminal output, chat, or commits.
+## What it actually does
 
-Each `references/<service>.md` is a deeper dive when the SKILL.md summary isn't enough.
+- ✅ **$0/month** — Vercel Hobby + Render Free + Supabase Free + Upstash Free + GitHub Actions
+- ✅ **MCP-first** — uses Supabase / Vercel / GitHub MCP tools by default; HTTPS Management API fallback for Render + Upstash (no MCP yet)
+- ✅ **Pre-flight self-install** — detects missing CLIs/MCP plugins and installs them (`claude plugin install …`, `brew install …`, `gh auth login`)
+- ✅ **Real gotchas, real fixes** — every entry in `references/gotchas.md` is a documented "lost an hour to this" moment with the actual error string + workaround
+- ✅ **Reproducible** — secrets generation script, smoke test script, secret rotation playbook, render.yaml + Dockerfile + workflows templates
 
-## What's in here
+End-to-end first deploy: ~10 minutes once you have the API keys.
 
-```
-zero-cost-deploy/
-├── SKILL.md                      # Skill entry — playbook, dense, MCP-first
-├── README.md                     # you are here
-├── LICENSE                       # MIT
-├── references/
-│   ├── mcp-tools.md              # MCP tool catalog per service + curl fallbacks
-│   ├── supabase.md               # Management API, RLS, project pausing, key formats
-│   ├── upstash.md                # Region selection, REST API, rate-limit pattern
-│   ├── render.md                 # Blueprint quirks, Dockerfile patterns, cold starts
-│   ├── vercel.md                 # Hobby limits, paste trick, Edge vs Node, custom domain
-│   ├── management-apis.md        # Cheat sheet for every service's REST surface
-│   ├── browser-fallbacks.md      # Last-resort UI scripting (rare, mostly "don't")
-│   └── gotchas.md                # Catalog of real breakage + fixes
-├── scripts/
-│   ├── gen-secrets.sh            # pre-flight: generate random secrets
-│   ├── supabase-push-migration.sh# push SQL via Management API (HTTPS-only)
-│   ├── supabase-verify-tables.sh # verify tables + RLS landed
-│   ├── upstash-create-redis.sh   # create Redis DB without fighting the UI
-│   ├── verify-deploy.sh          # smoke test a fresh deploy
-│   ├── vercel-add-domain.sh      # add custom domain + poll verification
-│   └── rotate-secrets.md         # step-by-step rotation playbook
-└── templates/
-    ├── render.yaml               # Blueprint with safe defaults
-    ├── Dockerfile                # multi-stage Bun image, fits 512 MB
-    ├── vercel.json               # Hobby-safe (daily-only) cron + security headers
-    ├── .env.example
-    └── workflows/
-        ├── ci.yml                # typecheck + lint + test on push/PR
-        └── scheduled.yml         # sub-daily crons via GitHub Actions
-```
+## Stack & free-tier caps
 
-## The stack — at a glance
-
-| Service | What it does | Free-tier cap | MCP |
+| Service | Role | Cap | MCP |
 |---|---|---|---|
-| **Supabase Free** | Postgres + Auth + RLS + Storage | 500 MB DB · 50K MAU · pauses after 7 days idle | ✅ |
-| **Vercel Hobby** | Frontend, short API routes, daily cron | 100 GB BW · 60 s timeout · daily cron · no commercial use | ✅ (env vars excluded) |
-| **Render Free** | Long-running services, WebSocket, > 60 s work | 512 MB RAM · sleeps after 15 min · 750 hr/month | ❌ |
-| **Upstash Free** | Redis for rate-limit, locks, ephemeral state | 10K commands/day · 256 MB | ❌ |
-| **GitHub Actions** | CI + sub-daily schedules | Unlimited on public repos | ✅ |
-| **Sentry Free** (opt) | Errors + sourcemaps | 5K errors/month | n/a |
+| **Supabase Free** | Postgres + Auth + RLS + Storage | 500 MB DB · 50K MAU · pauses 7d idle | ✅ official |
+| **Vercel Hobby** | Frontend + short API + daily cron | 100 GB BW · 60 s timeout · daily-only cron · no commercial | ✅ (env vars not exposed) |
+| **Render Free** | Long-running, WebSocket, > 60 s, Docker | 512 MB RAM · sleeps 15 min · 750 hr/mo | ❌ — HTTPS API |
+| **Upstash Free** | Redis (rate-limit, locks, ephemeral state) | 10K cmd/day · 256 MB | ❌ — HTTPS REST |
+| **GitHub Actions** | CI + sub-daily crons | Unlimited on public repos | ✅ |
+| **Sentry Free** (opt) | Errors + sourcemaps | 5K errors/month | — |
 
 Monthly bill: **$0**. Optional custom domain: ~$10/year.
 
 ## Why this exists
 
-Every "deploy your app for free" guide on the internet handwaves the broken parts. They tell you to "click the deploy button" — they don't tell you about:
+Every "deploy your app for free" guide handwaves the broken parts. They tell you to *click the deploy button* — they don't tell you:
 
-- Vercel's Hobby plan rejecting sub-daily crons after you've configured your whole app around them.
-- Render's Blueprint silently saving empty environment variables, leaving your service crashlooping.
-- Clash/Mihomo fakeip blocking Supabase's `db.<ref>.supabase.co:5432` so `supabase db push` mysteriously times out.
-- GitHub's OAuth Authorize button looking enabled but ignoring clicks for 2-4 seconds after page load.
-- Vercel CLI in GitHub Actions failing with `Must not contain "***"` because a trailing newline in your secret made GitHub's redaction regex eat half the command line.
-- The new `sb_publishable_*` / `sb_secret_*` key format breaking SDKs older than 2 months.
+- **Vercel Hobby blocks sub-daily crons** after you've designed your whole app around them
+- **Render Blueprint silently saves empty env vars** — service crashloops on boot
+- **Clash/Mihomo TUN fakeip** (`198.18.0.0/15`) breaks raw TCP to Supabase Postgres on port 5432
+- **GitHub's OAuth Authorize button** has a 2-4 s anti-bot disable window; JS clicks during it are silently ignored
+- **Vercel CLI in Actions** dies with `Must not contain "***"` when a trailing `\n` in the secret triggers GitHub's redaction regex to eat `--` in the command line
+- The 2026 **`sb_publishable_*` / `sb_secret_*`** key format breaks `@supabase/supabase-js` < 2.x
+- **Render Postgres free tier deletes itself after 90 days** (use Supabase instead)
+- **Custom domain stuck at "Verification Needed"** when there's a conflicting A/AAAA record at the same name
+- **SSL cert never provisions** because of CAA records blocking Let's Encrypt
 
-Each entry in `references/gotchas.md` is a real "I lost an hour to this" moment. The patterns in SKILL.md are the workarounds that work.
+Each gotcha in `references/gotchas.md` is a real "I lost an hour to this" moment with the exact symptom + working fix.
 
-## Universal patterns it teaches you
+## Universal patterns
 
-1. **MCP > Management API > UI automation.** Use MCP tools where they exist; fall back to bare HTTPS API; only touch UIs as a last resort.
-2. **ClipboardEvent for paste-aware React forms.** The only synthetic event React's value tracker accepts (Vercel env vars).
-3. **OAuth identity vs GitHub App permissions are separate.** Render/Vercel both do this; confusing them is the most common "no repos found" cause.
-4. **Network-aware fallbacks.** TUN-mode proxies break raw TCP. Use HTTPS APIs.
-5. **Anti-bot delays exist on real buttons.** GitHub OAuth, hCaptcha, Stripe — don't fight them, fall back to manual click.
+1. **MCP > Management API > UI automation.** Use MCP tools where they exist; fall back to bare HTTPS API; touch UIs only when unavoidable.
+2. **ClipboardEvent for paste-aware React forms.** The one synthetic event React's value tracker accepts (Vercel env vars).
+3. **OAuth identity vs GitHub App permissions are different things.** Render and Vercel both have this split; conflating them is the #1 "no repos found" cause.
+4. **Network-aware fallbacks for TUN proxies.** Clash / Mihomo / corporate firewalls break raw TCP. Use HTTPS Management APIs.
+5. **Anti-bot delays are real.** GitHub OAuth Authorize, hCaptcha, Stripe — don't fight them, fall back to manual click.
+
+## What's in here
+
+```
+zero-cost-deploy/
+├── SKILL.md                            # entry point — 334-line dense playbook
+├── references/
+│   ├── mcp-tools.md                    # MCP tool catalog per service + curl fallbacks
+│   ├── supabase.md                     # Management API, RLS, project pausing, key formats
+│   ├── upstash.md                      # Region selection, REST API, rate-limit pattern
+│   ├── render.md                       # Blueprint quirks, Dockerfile patterns, cold starts
+│   ├── vercel.md                       # Hobby limits, env paste trick, Edge vs Node, custom domain, GH Actions CI deploy
+│   ├── management-apis.md              # REST surface for every service
+│   ├── browser-fallbacks.md            # Last-resort UI scripting (rare, mostly "don't")
+│   └── gotchas.md                      # Real-world breakage catalog with literal error strings
+├── scripts/
+│   ├── gen-secrets.sh                  # generate randoms (RPC token, CRON_SECRET, AES key, …)
+│   ├── supabase-push-migration.sh      # push SQL via HTTPS Management API
+│   ├── supabase-verify-tables.sh       # confirm tables + RLS landed
+│   ├── upstash-create-redis.sh         # create Redis DB without fighting the UI
+│   ├── verify-deploy.sh                # smoke-test a fresh deploy
+│   ├── vercel-add-domain.sh            # add custom domain + poll verification
+│   └── rotate-secrets.md               # rotation checklist
+└── templates/
+    ├── render.yaml  Dockerfile  vercel.json  .env.example
+    └── workflows/{ci,scheduled}.yml    # GH Actions: CI + sub-daily crons
+```
 
 ## When NOT to use this stack
 
-- Sub-second cold start matters (Render Free sleeps; 30–60 s wake).
-- Commercial monetization on Vercel Hobby (banned by ToS — use Cloudflare Pages instead).
-- Postgres > 500 MB or > 50K MAU (upgrade Supabase or shard).
-- Heavy compute > 512 MB RAM (upgrade Render or use Cloudflare Workers for stateless).
-- Multi-region writes (everything here is single-region on free).
+- Sub-second cold start required (Render Free sleeps; 30–60 s wake)
+- Commercial monetization on Vercel Hobby (banned by ToS — use Cloudflare Pages)
+- Postgres > 500 MB or > 50K MAU (Supabase Pro $25/mo)
+- Heavy compute > 512 MB RAM (Render Starter $7/mo or Cloudflare Workers for stateless)
+- Multi-region writes (everything here is single-region on free)
+- HIPAA / SOC2 — free tiers don't sign BAAs
 
-See `SKILL.md` "Skip when" for the full list.
+## Install — other agents
+
+Same `git clone`. Then:
+
+| Client | How |
+|---|---|
+| **Claude Code** | clone into `~/.claude/skills/` — auto-discovered |
+| **Cursor** | symlink the dir into Cursor's rules path, or `@-mention` SKILL.md |
+| **Cline / Continue** | point the client's instruction file at `SKILL.md` |
+| **OpenClaw / Codex CLI** | follows Agent Skills spec — drop into their skills dir |
+
+The skill body references MCP tools (`mcp__plugin_supabase_supabase__*`, `mcp__plugin_vercel_vercel__*`, etc.) — install the equivalent MCP servers in your client. Fallback paths use plain `curl` and standard CLIs, so it degrades gracefully without MCP.
 
 ## Contributing
 
-Hit a gotcha that isn't documented? Open a PR adding it to `references/gotchas.md`. Pattern that should be in the universal patterns section? Same.
+Hit a gotcha that isn't documented? Open a PR adding it to `references/gotchas.md`.
 
-The bar: every entry must be a real issue you (or someone you trust) actually hit. No theoretical "what if X happens" — only "X happened, here's the symptom and the fix."
+The bar: every entry must be a real issue you (or someone you trust) actually hit. No theoretical "what if X happens" — only "X happened on date Y, here's the exact symptom and the fix."
+
+## Related
+
+- [agentskills.io](https://agentskills.io/specification) — Agent Skills spec
+- [anthropics/skills](https://github.com/anthropics/skills) — official Anthropic skills
+- [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) — curated cross-agent skill list
+- [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) — Claude Code resources
+
+## Keywords
+
+For discoverability: claude code skill · claude code plugin · agent skill · MCP server · zero cost deploy · free tier deploy · vercel hobby · vercel render supabase · supabase upstash redis · 免费上线 · 零成本部署 · vercel 免费 · supabase 免费 · render 免费 · how to deploy free 2026 · indie hacker stack · side project deploy · serverless deploy free · self host alternative · clash mihomo fakeip 5432 · vercel cron limit workaround · render blueprint env empty fix · supabase 5432 timeout fix · vercel CLI must not contain · github mcp authorization header badly formatted
 
 ## License
 
