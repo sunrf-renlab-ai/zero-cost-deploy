@@ -1,6 +1,6 @@
 ---
 name: zero-cost-deploy
-description: Use when deploying a web app to production for $0/month on the Vercel + Render + Supabase + Upstash stack. Covers the strict order of services, the patterns that work across all of them (Management API > UI automation, ClipboardEvent paste trick, OAuth+GitHub-App separation, network-aware fallbacks for Clash/Mihomo fakeip), and the gotchas that have actually broken real first-time deploys (Vercel Hobby daily-only cron limit, Supabase 5432 blocked by proxies, Render Blueprint silently dropping env vars, GitHub OAuth anti-bot delay on Authorize). Trigger phrases: "deploy this", "ship to prod", "put online", "免费上线", "zero-cost host", "how do I deploy".
+description: Use when deploying a web app to production for $0/month on a free-tier stack — Next.js on Vercel + Render (long-running) + Supabase (Postgres/Auth/Storage/Realtime/pgvector) + Upstash + Cloudflare DNS, plus Stripe (payments), Resend (email), Clerk (auth), PostHog (analytics), Sentry (errors), and Pinecone (vectors). Covers the strict order of services, the patterns that work across all of them (Management API > UI automation, ClipboardEvent paste trick, OAuth+GitHub-App separation, network-aware fallbacks for Clash/Mihomo fakeip), and the gotchas that have actually broken real first-time deploys (Vercel Hobby daily-only cron limit, Supabase 5432 blocked by proxies, Render Blueprint silently dropping env vars, GitHub OAuth anti-bot delay, Stripe webhook raw-body signature, Resend domain DNS, Clerk NEXT_PUBLIC_ env + middleware filename, PostHog region/ad-block, Cloudflare grey-cloud in front of Vercel, Pinecone index dimension). Trigger phrases: "deploy this", "ship to prod", "put online", "免费上线", "zero-cost host", "how do I deploy".
 ---
 
 # Zero-Cost Production Deploy
@@ -9,18 +9,48 @@ The path from a working web codebase to a live free-tier stack. Every form, ever
 
 ## The stack
 
+Free-tier caps verified 2026-06. **Core platform** (the spine — every deploy uses these):
+
 | Service | Role | Free-tier caps |
 |---|---|---|
-| **Vercel Hobby** | Web frontend, short API routes, daily cron | 100 GB bandwidth · 60 s function timeout · daily-only crons · no commercial use |
-| **Render Free** | Long-running services (WebSocket hubs, anything > 60 s), Docker, cron jobs | 512 MB RAM · sleeps after 15 min idle · 750 hr/month |
-| **Supabase Free** | Postgres + Auth + RLS + Storage | 500 MB DB · 50 K MAU · 1 GB Storage · project pauses after 7 days inactivity |
-| **Upstash Redis Free** | Rate limiting, concurrency locks, ephemeral state | 10 K commands/day · 256 MB |
-| **GitHub Actions** | CI + scheduled jobs the free tier won't allow | 2 K min/month private, unlimited public |
-| **Sentry Free** (optional) | Errors + sourcemaps | 5 K errors/month |
+| **Vercel Hobby** | Next.js frontend + full-stack, short API routes, daily cron | 100 GB bandwidth · 60 s function timeout · daily-only crons · no commercial use |
+| **Render Free** | Long-running services (WebSocket hubs, workers, anything > 60 s), Docker, sub-daily cron | 512 MB RAM · sleeps after 15 min idle · 750 hr/month |
+| **Supabase Free** | **Default backend**: Postgres + Auth + RLS + Storage + Realtime + pgvector | 500 MB DB · 50 K MAU · 1 GB Storage · project pauses after 7 days inactivity |
+| **Upstash Redis Free** | Rate limiting, concurrency locks, light queues, ephemeral state | 10 K commands/day · 256 MB |
+| **Cloudflare Free** | DNS (authoritative, ~unlimited records) + edge/CDN + Universal SSL; optional Pages hosting | Unmetered DNS/CDN/SSL · Pages: 500 builds/mo, unlimited bandwidth |
+| **GitHub** | Version control + Actions CI + scheduled jobs the free tier won't allow | Actions: 2 K min/mo private, unlimited public |
 
-**Monthly cost: $0.** Optional custom domain: ~$10/year.
+**Application services** (add the ones your app needs):
 
-Skip individual layers you don't need. The patterns below apply whether you use 1, 2, or all 4 services.
+| Service | Role | Free-tier caps |
+|---|---|---|
+| **Stripe** | Payments — cards, checkout, subscriptions, Connect payouts | **$0 fixed** (no monthly/setup fee) · 2.9% + $0.30 per successful card charge · test mode free + unlimited |
+| **Resend Free** | Transactional + broadcast email (React Email templating) | 3 K emails/mo · 100/day · 1 verified domain · 5 req/s |
+| **Clerk Free (Hobby)** | Drop-in auth — sessions, social login, orgs, prebuilt UI _(alt to Supabase Auth)_ | 50 K monthly-active (retained) users · 100 orgs · MFA + de-branding are Pro ($25/mo) |
+| **PostHog Free** | Product analytics + session replay + feature flags | 1 M events/mo · 5 K replays/mo · set per-product $0 cap to never get billed |
+| **Sentry Free** | Error monitoring + sourcemaps | 5 K errors/mo |
+| **Pinecone Starter** | Managed vector DB _(alt to Supabase pgvector)_ | 2 GB storage · 5 serverless indexes · 2 M write / 1 M read units/mo · AWS us-east-1 only |
+| **Namecheap / any registrar** | Domain registration | ~$12/year for a `.com` (≈ $1/mo) |
+
+**Monthly cost: $0** for the platform tier. Variable: domain ~$12/yr (≈$1/mo) · Stripe 2.9% + $0.30 per transaction (no fixed fee) · every other service is free until you outgrow a cap above.
+
+Skip individual layers you don't need. The patterns below apply whether you use one service or all of them.
+
+## Tech-stack mapping (default picks)
+
+| Layer | Default | Notes |
+|---|---|---|
+| Frontend / full-stack | **Next.js** (on Vercel) | — |
+| Backend | **Supabase** | DB + Auth + Storage + Realtime + pgvector, one project |
+| Long-running / workers | **Render** | anything that can't fit Vercel's 60 s budget |
+| Payments | **Stripe** | — |
+| Email | **Resend** | — |
+| Analytics | **PostHog** | — |
+| Error monitoring | **Sentry** | — |
+| Cache / light queue | **Upstash** | Redis over REST |
+| Domain / DNS / edge | **Cloudflare** + any solid registrar (Namecheap) | DNS-only (grey cloud) in front of Vercel |
+
+**Alternatives in the kit** — swap in when you don't want Supabase's built-ins: **Clerk** for auth instead of Supabase Auth; **Pinecone** for vectors instead of Supabase pgvector. Both are in the stack table with their free tiers; the deploy steps below default to Supabase.
 
 ## When NOT to use this stack
 
@@ -59,9 +89,11 @@ CRON_SECRET=qDyY…+PlD                 # for cron route authorization
 1. Supabase    → emits project_ref + URL + service_role key
 2. Upstash     → independent; can parallel with Render
 3. Render      → uses Supabase URL + service_role key + shared RPC token
-4. Vercel      → uses everything above
-5. Smoke test  → scripts/verify-deploy.sh
-6. Rotate      → any secret that touched terminal output or chat
+4. Add-ons     → Stripe / Resend / Clerk / PostHog / Pinecone — independent; grab each key now (§③.5)
+5. Cloudflare  → add domain as a zone, point DNS at Vercel (grey cloud)
+6. Vercel      → uses everything above (paste all env at once)
+7. Smoke test  → scripts/verify-deploy.sh
+8. Rotate      → any secret that touched terminal output or chat
 ```
 
 GitHub Actions for CI runs implicitly on push; for scheduled jobs (warming Render, releases), add the workflow at any point.
@@ -187,6 +219,56 @@ When applying the Blueprint, the env values may **silently fail to save** if you
 curl https://<your-service>.onrender.com/healthz
 # → ok
 ```
+
+---
+
+## ③.5 Add-on services — grab keys before Vercel
+
+Each is independent: sign up, grab the credential, note the env var. Wire them into the **Vercel env paste** (step ④) so they ship in one shot. Caps verified 2026-06. Default backend is still Supabase — **Clerk** and **Pinecone** are here only if you're swapping out Supabase Auth / pgvector.
+
+> **Wire the payment-funnel observability trio early: PostHog + Sentry + Stripe webhook replay.** Once real charges flow, "why did this checkout fail / did the webhook actually fire / where did the user drop off?" is only answerable if PostHog (funnel + drop-off), Sentry (server errors), and replayable Stripe events were already capturing. Stripe lets you **resend** any past event (Dashboard → event → Resend, or `stripe events resend <evt_id>`) — invaluable for re-driving a failed webhook against a fixed handler. Retrofitting these after a paid-path bug means the events that would've explained it are already gone. Cheap up front, expensive in hindsight.
+
+### Stripe (payments)
+
+Dashboard → Developers → API keys: `pk_…` (browser → `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`) + `sk_…` (server → `STRIPE_SECRET_KEY`). Add a webhook endpoint → copy its `whsec_…` into `STRIPE_WEBHOOK_SECRET`. **$0 fixed cost; 2.9% + $0.30 per live charge.** `sk_test_` mode is free + unlimited for dev.
+
+- **GOTCHA**: the webhook HMAC is computed over the **raw** body. In App Router read `await req.text()` (never `req.json()`) before `stripe.webhooks.constructEvent(...)`, or every event 400s with `SignatureVerificationError`. Test and live are **separate endpoints with separate `whsec_`** — the local `stripe listen` secret won't verify prod events.
+- https://stripe.com/pricing
+
+### Resend (email)
+
+resend.com/api-keys → Create (value shown **once**) → `RESEND_API_KEY`. `npm i resend`, send server-side only. **Free: 3 K emails/mo · 100/day · 1 verified domain · 5 req/s.** Pro $20/mo = 50 K/mo.
+
+- **GOTCHA**: sending from your own domain needs DNS verification — publish DKIM + SPF (TXT) + a bounce **MX** on a sending **subdomain** (`send.example.com`, not the root). On Cloudflare set those records **DNS-only (grey cloud)**; proxying breaks verification. Until verified you can only send from `onboarding@resend.dev` to your own account email. Resend marks the domain "failed" if records aren't seen within 72 h.
+- https://resend.com/pricing · deeper notes in `references/email.md`
+
+### Clerk (auth — alternative to Supabase Auth)
+
+Dashboard → API keys → `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_…` + `CLERK_SECRET_KEY=sk_…`. `npm i @clerk/nextjs`, export `clerkMiddleware()` from the root middleware file. **Free Hobby: 50 K monthly-active (retained) users + 100 orgs** (MFA + de-branding are Pro $25/mo).
+
+- **GOTCHA**: the publishable key MUST keep the `NEXT_PUBLIC_` prefix or the client SDK never initializes. The middleware file is `middleware.ts` on Next ≤ 15 but **`proxy.ts` on Next 16+** — wrong filename = auth context missing everywhere.
+- https://clerk.com/pricing
+
+### PostHog (analytics)
+
+Project Settings → public `phc_…` key → `NEXT_PUBLIC_POSTHOG_KEY` + `NEXT_PUBLIC_POSTHOG_HOST` (`https://us.i.posthog.com` **or** `https://eu.i.posthog.com`). **Free: 1 M events/mo · 5 K session replays/mo.** Set each product's billing limit to **$0** → overage is dropped, never charged.
+
+- **GOTCHA**: US and EU clouds are **separate hosts that don't sync** — wrong host silently drops every event. 30 %+ of users ad-block `*.posthog.com`; reverse-proxy through your own domain on an **obscure path** (managed proxy or a Cloudflare Worker — Vercel rewrites burn Edge quota; replays are 1–5 MB each).
+- https://posthog.com/pricing
+
+### Cloudflare (DNS + edge)
+
+Add the domain as a zone → switch the registrar's nameservers to Cloudflare's two NS → add Vercel's records (apex `A 76.76.21.21` or CNAME; apex CNAME is auto-flattened). **Free: unmetered DNS/CDN/Universal-SSL, ~unlimited records.**
+
+- **GOTCHA**: in front of Vercel keep the records **DNS-only (grey cloud)**. Orange-cloud stacks two CDNs + two SSL terminations and — unless SSL/TLS mode is **Full** or **Full (strict)** — loops infinitely (525/526). Vercel itself recommends DNS-only.
+- https://www.cloudflare.com/plans/free/
+
+### Pinecone (vectors — alternative to Supabase pgvector)
+
+app.pinecone.io (auto-enrolls free Starter) → console → API key → `PINECONE_API_KEY` (server only). `npm i @pinecone-database/pinecone`. **Free Starter: 2 GB storage · 5 serverless indexes · 2 M write / 1 M read units/mo.**
+
+- **GOTCHA**: Starter indexes are locked to **AWS us-east-1** (latency if your app runs elsewhere). The index **dimension must exactly match your embedding model** (1536 for OpenAI `text-embedding-3-small`, 1024 for `llama-text-embed-v2`, …) or every upsert/query throws. Over 2 GB / WU / RU caps = hard **403/429**, not overage billing.
+- https://www.pinecone.io/pricing/
 
 ---
 
@@ -563,6 +645,12 @@ See `references/gotchas.md` for the full list. Highlights:
 | Whole domain 403, `x-vercel-mitigated: challenge` | Attack Challenge Mode (often tripped by tight curl-polling loops) | `POST /v1/security/attack-mode {attackModeEnabled:false}`; stop polling the live domain |
 | Auth email won't reach users / "can only send to your own address" | Provider needs domain verification before sending to strangers (full-access key doesn't bypass) | Verify a domain, OR use a real mailbox's SMTP (Gmail App Password) — no DNS. See `references/email.md` |
 | Supabase SMTP PATCH 200 but no effect | `smtp_port` sent as int | Send `"smtp_port": "465"` (string) |
+| Stripe webhook 400s every event | `constructEvent` throws `SignatureVerificationError` | Read raw body via `await req.text()` (not `req.json()`); each endpoint has its own `whsec_`, test ≠ live |
+| Resend domain "failed" / can only send to self | DKIM/SPF/MX not detected within 72 h | Publish records on a sending **subdomain**; Cloudflare **grey-cloud** (DNS-only) |
+| Clerk auth context missing everywhere | wrong middleware filename or non-public key | `middleware.ts` (Next ≤15) / `proxy.ts` (Next 16+); publishable key needs `NEXT_PUBLIC_` prefix |
+| PostHog events silently dropped | wrong region host, or ad-blocker on `*.posthog.com` | Match US/EU host to the project; reverse-proxy on an obscure path |
+| Cloudflare 525/526 loop in front of Vercel | orange-cloud proxy + Flexible SSL | Grey-cloud (DNS-only), or set SSL mode **Full (strict)** |
+| Pinecone upsert/query throws | index dimension ≠ embedding model output | Create the index with the model's exact dim (1536/1024/…); Starter is us-east-1 only |
 
 ---
 
