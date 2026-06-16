@@ -91,6 +91,36 @@ Hot rotation is fine; only used by your own scheduled jobs.
 2. Update Vercel env. Redeploy.
 3. Update GitHub Actions secret if applicable: repo → Settings → Secrets → Actions → edit `CRON_SECRET`. Workflows pick up the new value on next run.
 
+### Stripe (`STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`)
+
+1. Dashboard → **Developers → API keys** → **Roll** the secret key. You can set a **grace period** during which the old key still works — use it to avoid downtime.
+2. Update Vercel env `STRIPE_SECRET_KEY` → Save → Redeploy. Do this before the grace period ends.
+3. Webhook signing secret (`whsec_`) **cannot be re-viewed** after creation. To roll it you must **delete and recreate the webhook endpoint** (Developers → Webhooks → delete → add endpoint), then copy the new signing secret.
+4. Update Vercel env `STRIPE_WEBHOOK_SECRET`. Redeploy.
+
+### Resend (`RESEND_API_KEY`)
+
+The value is shown **only once** at creation, so you rotate by replacing the key.
+
+1. https://resend.com/api-keys → **delete** the old key → **create** a new one. Copy it now.
+2. Update Vercel env `RESEND_API_KEY`. Redeploy.
+
+### Clerk (`CLERK_SECRET_KEY`)
+
+1. Dashboard → **API keys** → **regenerate** the secret key.
+2. Update Vercel env `CLERK_SECRET_KEY`. Redeploy.
+
+The publishable key (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`) is public and does **not** need rotation.
+
+### PostHog (`NEXT_PUBLIC_POSTHOG_KEY`)
+
+The `phc_` key is a **public, write-only** project key shipped to the browser — leaking it is low risk (it can only ingest events, not read data). Rotate only if you actually need to: Project Settings → reset the project API key, then update `NEXT_PUBLIC_POSTHOG_KEY` and redeploy.
+
+### Pinecone (`PINECONE_API_KEY`)
+
+1. console.pinecone.io → **API Keys** → **delete** the old key → **create** a new one. Copy it now.
+2. Update Vercel env `PINECONE_API_KEY`. Redeploy.
+
 ## Post-rotation verification
 
 ```bash

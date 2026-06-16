@@ -1,6 +1,6 @@
 ---
 name: zero-cost-deploy
-description: Use when deploying a web app to production for $0/month on a free-tier stack — Next.js on Vercel + Render (long-running) + Supabase (Postgres/Auth/Storage/Realtime/pgvector) + Upstash + Cloudflare DNS, plus Stripe (payments), Resend (email), Clerk (auth), PostHog (analytics), Sentry (errors), and Pinecone (vectors). Covers the strict order of services, the patterns that work across all of them (Management API > UI automation, ClipboardEvent paste trick, OAuth+GitHub-App separation, network-aware fallbacks for Clash/Mihomo fakeip), and the gotchas that have actually broken real first-time deploys (Vercel Hobby daily-only cron limit, Supabase 5432 blocked by proxies, Render Blueprint silently dropping env vars, GitHub OAuth anti-bot delay, Stripe webhook raw-body signature, Resend domain DNS, Clerk NEXT_PUBLIC_ env + middleware filename, PostHog region/ad-block, Cloudflare grey-cloud in front of Vercel, Pinecone index dimension). Trigger phrases: "deploy this", "ship to prod", "put online", "免费上线", "zero-cost host", "how do I deploy".
+description: Stand up a working web app on a $0/month free-tier stack from scratch — Next.js on Vercel + Render (always-on/long-running) + Supabase (Postgres/Auth/Storage/Realtime/pgvector) + Upstash + Cloudflare DNS, plus optional Stripe, Resend, Clerk, PostHog, Sentry, Pinecone. Use it whenever someone wants to host or deploy a side project, MVP, or prototype for free — "how do I host this for free", "免费上线", "zero-cost host", "put this online", "ship to prod on free tier" — or needs the strict service order, cross-service patterns (Management API over UI automation, env paste tricks, OAuth/GitHub-App separation, Clash/Mihomo network fallbacks), and the real-world gotchas that break first-time free-tier deploys. NOT for the git push→PR→merge→release flow of an already-hosted app (that's a ship/land workflow), nor for paid/enterprise infra like AWS, Fly, or k8s — this is specifically standing up the hosting itself on free tiers.
 ---
 
 # Zero-Cost Production Deploy
@@ -13,10 +13,10 @@ Free-tier caps verified 2026-06. **Core platform** (the spine — every deploy u
 
 | Service | Role | Free-tier caps |
 |---|---|---|
-| **Vercel Hobby** | Next.js frontend + full-stack, short API routes, daily cron | 100 GB bandwidth · 60 s function timeout · daily-only crons · no commercial use |
-| **Render Free** | Long-running services (WebSocket hubs, workers, anything > 60 s), Docker, sub-daily cron | 512 MB RAM · sleeps after 15 min idle · 750 hr/month |
+| **Vercel Hobby** | Next.js frontend + full-stack, short API routes, daily cron | ~100 GB transfer · 300 s function timeout (Fluid Compute) · 100 daily crons/project · no commercial use |
+| **Render Free** | Always-on / long-running: WebSocket hubs, background workers, jobs > 300 s, Docker-native services | 512 MB RAM · sleeps after 15 min idle · 750 hr/month |
 | **Supabase Free** | **Default backend**: Postgres + Auth + RLS + Storage + Realtime + pgvector | 500 MB DB · 50 K MAU · 1 GB Storage · project pauses after 7 days inactivity |
-| **Upstash Redis Free** | Rate limiting, concurrency locks, light queues, ephemeral state | 10 K commands/day · 256 MB |
+| **Upstash Redis Free** | Rate limiting, concurrency locks, light queues, ephemeral state | 500 K commands/mo · 256 MB · 10 GB/mo bandwidth |
 | **Cloudflare Free** | DNS (authoritative, ~unlimited records) + edge/CDN + Universal SSL; optional Pages hosting | Unmetered DNS/CDN/SSL · Pages: 500 builds/mo, unlimited bandwidth |
 | **GitHub** | Version control + Actions CI + scheduled jobs the free tier won't allow | Actions: 2 K min/mo private, unlimited public |
 
@@ -42,7 +42,7 @@ Skip individual layers you don't need. The patterns below apply whether you use 
 |---|---|---|
 | Frontend / full-stack | **Next.js** (on Vercel) | — |
 | Backend | **Supabase** | DB + Auth + Storage + Realtime + pgvector, one project |
-| Long-running / workers | **Render** | anything that can't fit Vercel's 60 s budget |
+| Long-running / workers | **Render** | always-on or > 300 s — WebSocket hubs, workers, Docker; Vercel covers ≤ 300 s |
 | Payments | **Stripe** | — |
 | Email | **Resend** | — |
 | Analytics | **PostHog** | — |
@@ -109,7 +109,7 @@ After project creates, **Project Settings → API → Data API** has the values 
 | Field | Use as |
 |---|---|
 | Project URL | `NEXT_PUBLIC_SUPABASE_URL` (or whatever your framework names it) |
-| Publishable key (`sb_publishable_…`) | Browser-side anon key |
+| Publishable key (`sb_publishable_…`) | `NEXT_PUBLIC_SUPABASE_ANON_KEY` — browser-side anon key |
 | Secret key (`sb_secret_…`) | `SUPABASE_SERVICE_ROLE_KEY` — server-only, never exposed |
 | Project ID / Ref (substring of URL) | `<project-ref>` for CLI / Management API |
 
@@ -184,7 +184,7 @@ See `references/upstash.md` for region options, global vs regional, eviction con
 
 ## ③ Render
 
-Use if your app has anything that can't fit in Vercel's 60 s function budget: WebSocket servers, long-running orchestration, background workers, scheduled jobs more frequent than daily.
+Use if your app needs always-on or genuinely long-running work that doesn't fit Vercel's **300 s** function budget: WebSocket servers, background workers, long-running orchestration, jobs > 300 s, or Docker-native services. Note the bar moved — Vercel Hobby functions now run up to 300 s (5 min) on Fluid Compute, so many things that once needed Render now fit on Vercel. Reach for Render when you truly need a *persistent process*, not merely "> 60 s". (For unbounded execution without a server, Vercel Workflows is another option.)
 
 ### Repo prep
 
@@ -220,13 +220,15 @@ curl https://<your-service>.onrender.com/healthz
 # → ok
 ```
 
+See `references/render.md` for Blueprint env-var workarounds, cold-start mitigation, and the free-Postgres expiry trap (expires 30 days after creation + 14-day grace).
+
 ---
 
 ## ③.5 Add-on services — grab keys before Vercel
 
 Each is independent: sign up, grab the credential, note the env var. Wire them into the **Vercel env paste** (step ④) so they ship in one shot. Caps verified 2026-06. Default backend is still Supabase — **Clerk** and **Pinecone** are here only if you're swapping out Supabase Auth / pgvector.
 
-> **Wire the payment-funnel observability trio early: PostHog + Sentry + Stripe webhook replay.** Once real charges flow, "why did this checkout fail / did the webhook actually fire / where did the user drop off?" is only answerable if PostHog (funnel + drop-off), Sentry (server errors), and replayable Stripe events were already capturing. Stripe lets you **resend** any past event (Dashboard → event → Resend, or `stripe events resend <evt_id>`) — invaluable for re-driving a failed webhook against a fixed handler. Retrofitting these after a paid-path bug means the events that would've explained it are already gone. Cheap up front, expensive in hindsight.
+> **Wire the payment-funnel observability trio early — PostHog + Sentry + Stripe event replay.** Retrofitting them after a paid-path bug means the events that would've explained "why did this checkout fail / did the webhook fire / where did the user drop?" are already gone. Stripe can resend any past event (Dashboard → event → Resend, or `stripe events resend <evt_id>`) to re-drive a failed webhook against a fixed handler — cheap up front, expensive in hindsight.
 
 ### Stripe (payments)
 
@@ -325,7 +327,7 @@ If `vercel.json` has any cron more frequent than once a day (`*/N`, `0 * * * *`,
 
 **Fix**: move sub-daily crons to GitHub Actions. Template at `templates/workflows/scheduled.yml`. GitHub Actions on a public repo is free and has no schedule cap.
 
-Keep Vercel cron schedules at `MM HH * * *` (daily). Up to 3 daily crons on Hobby.
+Keep Vercel cron schedules at `MM HH * * *` (daily). Hobby now allows up to **100 crons per project** — the *count* isn't the limit, the daily-only *frequency* is.
 
 ### Deploy
 
@@ -382,146 +384,13 @@ Adds the domain + kicks off verification. Polling endpoint: `GET /v9/projects/$P
 
 ## ④.5 Auto-deploy via GitHub Actions (when Vercel's GitHub App isn't an option)
 
-Vercel's native GitHub integration installs a GitHub App on the repo owner.
-It's the smoothest path — but **the App can't be auto-installed**. The owner
-has to click through `https://github.com/apps/vercel/installations/new`,
-which means you can't fully script first-time deploys.
+Vercel's GitHub App can't be auto-installed and doesn't fit every setup — the deploying account may lack repo-secrets permission, you may want path-filtered monorepo triggers, or CI-gated promotes. The workaround: **deploy via Vercel CLI from GitHub Actions** — one workflow file + three repo secrets (`VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID`).
 
-You also can't use it when:
-- The deploying account (e.g. `gh` logged in as `someone-else`) lacks repo
-  Settings → Secrets write permission on the target repo
-- You want **path-filtered** triggers (monorepo: only `web/**` deploys; CLI
-  changes don't burn CI minutes)
-- You want CI-controllable build/test gating before the deploy promotes
+Two traps to know up front:
+- Pass `VERCEL_TOKEN` via `env:`, **not** the `--token` flag; and store secrets with `gh secret set --body "$VAR"` (never `echo "$VAR" | gh secret set --body -`). A trailing newline makes GitHub redact every `-` in the runner output and the CLI dies with a cryptic `must not contain ***`.
+- If the workflow uses `working-directory: web`, clear the Vercel project's `rootDirectory` (PATCH it to `null`) or both layers prepend `web/` and the CLI hits `web/web/package.json` ENOENT.
 
-Workaround: **deploy via Vercel CLI from GitHub Actions** using a stored
-token. Setup is one workflow file + three repo secrets.
-
-### Setup
-
-```bash
-# 1. Get a Vercel token. Best practice: vercel.com/account/tokens → New →
-#    name "ci-<project>", set scope, ~1 year expiry. MVP shortcut: use the
-#    CLI's own session token (~/Library/Application Support/com.vercel.cli
-#    /auth.json on macOS). Either way rotate before sharing the repo.
-VT=$(cat ~/Library/Application\ Support/com.vercel.cli/auth.json \
-       | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"], end="")')
-
-# 2. Find the project + org IDs.
-PROJECT_ID=$(cat web/.vercel/project.json | jq -r .projectId)
-ORG_ID=$(cat web/.vercel/project.json | jq -r .orgId)
-
-# 3. Push them as repo secrets. CRITICAL: use --body, NOT `echo | --body -`.
-#    Echo's trailing newline ends up in the secret value and Vercel CLI then
-#    rejects the env var with the cryptic "must not contain ***" (see GOTCHA
-#    below for what's happening). Direct --body avoids it entirely.
-gh secret set VERCEL_TOKEN      --repo OWNER/REPO --body "$VT"
-gh secret set VERCEL_ORG_ID     --repo OWNER/REPO --body "$ORG_ID"
-gh secret set VERCEL_PROJECT_ID --repo OWNER/REPO --body "$PROJECT_ID"
-```
-
-### Workflow file
-
-Drop this at `.github/workflows/deploy-web.yml`. Replace `web` with your
-sub-directory (or remove `working-directory:` for repos with the Next.js
-app at the root).
-
-```yaml
-name: Deploy web → Vercel
-
-on:
-  push:
-    branches: [main]
-    paths: ["web/**", ".github/workflows/deploy-web.yml"]
-  pull_request:
-    branches: [main]
-    paths: ["web/**"]
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: web } }
-    env:
-      # Pass via env, NOT `--token` flag. See GOTCHA below.
-      VERCEL_TOKEN:     ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID:    ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: "20" }
-      - run: npm install -g vercel@latest
-      - name: Pull env
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            vercel pull --yes --environment=preview
-          else
-            vercel pull --yes --environment=production
-          fi
-      - name: Build
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            vercel build
-          else
-            vercel build --prod
-          fi
-      - name: Deploy
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            vercel deploy --prebuilt
-          else
-            vercel deploy --prebuilt --prod
-          fi
-```
-
-### Project setting — **clear `rootDirectory`**
-
-If your workflow uses `working-directory: web`, set the Vercel project's
-`rootDirectory` to `null`. Otherwise both layers prepend `web/` and the CLI
-ends up looking at `web/web/package.json` — `ENOENT`.
-
-```bash
-curl -s -X PATCH \
-  -H "Authorization: Bearer $VERCEL_TOKEN" \
-  -H "content-type: application/json" \
-  "https://api.vercel.com/v9/projects/$PROJECT_ID?teamId=$ORG_ID" \
-  -d '{"rootDirectory":null}'
-```
-
-(The inverse — keep `rootDirectory=web` on the project, drop
-`working-directory` from the workflow — also works. Pick one.)
-
-### GOTCHA: do NOT use `--token` flag (and: no trailing newline in the secret)
-
-Two distinct traps. Both produce the same error:
-
-> `Error: You defined "***token", but its contents are invalid. Must not contain: "***"`
-
-The `***` is GitHub Actions redacting characters that *happen to be in your
-secret value*. Trailing `\n` in the secret causes substring matching across
-runner output to flag every `-` and `--` as redacted. The error message and
-the entire command line become unparseable garbage.
-
-**Fix 1 (always do this):** pass `VERCEL_TOKEN` via `env:`, not via
-`--token "${{ secrets.X }}"`. The CLI reads `VERCEL_TOKEN` natively; the
-flag is unnecessary. This eliminates the flag-redaction angle entirely.
-
-**Fix 2 (always do this):** when storing the secret, use `gh secret set
---body "$VAR"`, not `echo "$VAR" | gh secret set --body -`. Echo appends
-`\n`; the newline corrupts the value and triggers the redaction storm above.
-
-### Verify
-
-```bash
-gh run list --repo OWNER/REPO --workflow "deploy-web.yml" --limit 1
-# in_progress → completed,success expected in ~60-90s
-gh workflow run "Deploy web → Vercel" --repo OWNER/REPO --ref main
-```
-
-After the first green run, add a `deployed_via: "github-actions"` marker to
-your `/api/health` route and push it — confirms the new pipeline (not a
-prior manual `vercel --prod`) put the build in production.
+**Full walkthrough — the complete workflow YAML, token + rootDirectory setup, and both traps explained — lives in `references/vercel.md`.**
 
 ---
 
@@ -538,6 +407,7 @@ The script asserts:
 - Locale routing (if i18n) works at `/en`, `/zh`, etc.
 - Internal-token-protected endpoints reject unauthenticated requests with 403
 - Orchestrator `/healthz` returns `ok`
+- (optional, set `STRIPE_WEBHOOK_PATH`) a bad-signature POST to the webhook returns 400 — proves the handler is wired and enforcing signature verification
 
 All green = ship-ready.
 
@@ -555,8 +425,12 @@ Anything that appeared in your terminal output, chat transcripts, screenshots, o
 | Generated AES-GCM / HMAC keys for at-rest encryption | If users haven't created encrypted data yet: regenerate and update Vercel + Render. **If users have stored encrypted data**: rotating invalidates it — implement a key-versioning rewrap before rotation. |
 | Inter-service RPC token (Vercel↔Render) | Regenerate, update BOTH services (must match) |
 | `CRON_SECRET` | Regenerate, update Vercel |
+| Stripe `sk_…` (secret key) | Dashboard → Developers → API keys → Roll (set grace period) → update Vercel; webhook `whsec_` can't be re-viewed — recreate the endpoint to roll it |
+| Resend `RESEND_API_KEY` | resend.com/api-keys → delete + create (shown once) → update Vercel |
+| Clerk `CLERK_SECRET_KEY` | Dashboard → API keys → regenerate (publishable key is public, no rotation needed) |
+| Pinecone `PINECONE_API_KEY` | console → API Keys → delete + create → update Vercel |
 
-`scripts/rotate-secrets.md` has a step-by-step checklist.
+`scripts/rotate-secrets.md` has a step-by-step checklist (incl. PostHog's public `phc_` key — low risk, reset only if needed).
 
 ---
 
@@ -640,7 +514,7 @@ See `references/gotchas.md` for the full list. Highlights:
 | Vercel auto-suffix | Project URL has `-xxxxx` random suffix | Either accept it or rename project in Settings → General |
 | `metadataBase` warning | Build warns about localhost OG | Set `NEXT_PUBLIC_SITE_URL` in Vercel, or trust runtime `VERCEL_URL` |
 | Supabase service_role key rotated | App breaks after old key revoked | Update both Vercel AND Render in same minute; restart Render service |
-| Upstash command exhaustion | 429 from REST endpoint | Free tier is 10 K commands/day; cache aggressively or upgrade |
+| Upstash command exhaustion | 429 from REST endpoint | Free tier is 500 K commands/month (resets at billing-month start); cache aggressively or upgrade |
 | Vercel CI token "not valid" daily | Secret holds the CLI session token, which rotates ~daily | Use a no-expiration PAT from vercel.com/account/tokens, not `auth.json` |
 | Whole domain 403, `x-vercel-mitigated: challenge` | Attack Challenge Mode (often tripped by tight curl-polling loops) | `POST /v1/security/attack-mode {attackModeEnabled:false}`; stop polling the live domain |
 | Auth email won't reach users / "can only send to your own address" | Provider needs domain verification before sending to strangers (full-access key doesn't bypass) | Verify a domain, OR use a real mailbox's SMTP (Gmail App Password) — no DNS. See `references/email.md` |
@@ -649,7 +523,7 @@ See `references/gotchas.md` for the full list. Highlights:
 | Resend domain "failed" / can only send to self | DKIM/SPF/MX not detected within 72 h | Publish records on a sending **subdomain**; Cloudflare **grey-cloud** (DNS-only) |
 | Clerk auth context missing everywhere | wrong middleware filename or non-public key | `middleware.ts` (Next ≤15) / `proxy.ts` (Next 16+); publishable key needs `NEXT_PUBLIC_` prefix |
 | PostHog events silently dropped | wrong region host, or ad-blocker on `*.posthog.com` | Match US/EU host to the project; reverse-proxy on an obscure path |
-| Cloudflare 525/526 loop in front of Vercel | orange-cloud proxy + Flexible SSL | Grey-cloud (DNS-only), or set SSL mode **Full (strict)** |
+| Cloudflare 525/526 loop in front of Vercel | orange-cloud proxy + Flexible SSL | Grey-cloud (DNS-only), or set SSL mode **Full** / **Full (strict)** |
 | Pinecone upsert/query throws | index dimension ≠ embedding model output | Create the index with the model's exact dim (1536/1024/…); Starter is us-east-1 only |
 
 ---
@@ -663,11 +537,12 @@ zero-cost-deploy/
 ├── references/
 │   ├── supabase.md                         # Management API endpoints, RLS patterns
 │   ├── upstash.md                          # Region options, REST surface
-│   ├── render.md                           # Blueprint quirks, env var workarounds
-│   ├── vercel.md                           # Hobby limits, paste trick, PAT vs session token, env-via-API, attack mode
+│   ├── render.md                           # Blueprint quirks, env var workarounds, free-Postgres expiry
+│   ├── vercel.md                           # Hobby limits, paste trick, GitHub-Actions CLI deploy walkthrough, attack mode
 │   ├── email.md                            # Transactional email / magic links — SMTP, Resend domain verification, Gmail App Password
 │   ├── management-apis.md                  # Per-service REST endpoints catalog
-│   ├── browser-automation.md               # When to use osascript, when not to
+│   ├── mcp-tools.md                        # MCP tools for this stack
+│   ├── browser-fallbacks.md                # network-aware fallbacks (Clash/Mihomo fakeip, REST over raw TCP)
 │   └── gotchas.md                          # Every weird issue + fix
 ├── scripts/
 │   ├── gen-secrets.sh                      # Pre-flight: generate all randoms

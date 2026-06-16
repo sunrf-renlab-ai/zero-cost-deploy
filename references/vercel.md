@@ -4,11 +4,11 @@
 
 | Resource | Cap |
 |---|---|
-| Bandwidth | 100 GB / month |
-| Function execution | 60 s max (Edge: 25 s) |
-| Function invocations | 100K / day (Edge: 1M / day) |
+| Fast Data Transfer | 100 GB / month (the real metering also caps 1M edge requests, 4 CPU-hrs active CPU, and 1M function invocations / month) |
+| Function execution | 300 s max (5 min) on Fluid Compute — both default and max (Edge: 25 s) |
+| Function invocations | 1,000,000 / month (Edge: 1M / day) |
 | Concurrent builds | 1 |
-| Cron jobs | Daily only, up to 3 |
+| Cron jobs | Daily-only frequency, up to 100 per project |
 | Custom domains | Unlimited (DNS only — no email forwarding) |
 | Team size | 1 (you) |
 | **Commercial use** | **Prohibited** |
@@ -78,6 +78,8 @@ If `vercel.json` has anything more frequent than daily:
 Deploy fails with:
 
 > Hobby accounts are limited to daily cron jobs. Reduce to one execution per day or upgrade to Pro.
+
+Hobby allows up to **100 cron jobs per project**, so count is not the bottleneck — the constraint is purely **frequency**: each cron can fire at most once per day, and any sub-daily expression fails the deploy.
 
 **Valid Hobby schedules**: `MM HH * * *` only. Examples:
 - `0 7 * * *` — daily at 07:00 UTC
@@ -220,12 +222,15 @@ export const metadata: Metadata = {
 };
 ```
 
-## Function timeout — the 60 s line
+## Function timeout — the 300 s line
 
-Any API route that might take longer than 60 s needs to either:
+With Fluid Compute (default-on for new projects since 2025-04), Hobby functions run up to **300 s (5 minutes)** — both the default and the max. Most "long" work now fits inside that envelope, so Render is no longer needed just to dodge a 60 s wall.
+
+Any API route that might still exceed 300 s needs to either:
 1. Move to Render (long-running service).
 2. Move to a queue + worker pattern (Inngest, Vercel Queues with Pro, custom Upstash queue).
 3. Stream the response (Edge runtime + ReadableStream) so the wall clock doesn't apply.
+4. Use **Vercel Workflows** — durable, pausable/resumable steps with **no overall duration limit** — for genuinely unbounded execution.
 
 For LLM streaming specifically, Edge runtime + `StreamingTextResponse` from `ai` package handles this elegantly.
 
@@ -257,8 +262,8 @@ export const runtime = 'edge'; // or 'nodejs' (default)
 | | Node | Edge |
 |---|---|---|
 | Cold start | Slower (~300 ms) | Fast (~50 ms) |
-| Max duration | 60 s | 25 s |
-| Free invocations | 100K/day | 1M/day |
+| Max duration | 300 s | 25 s |
+| Free invocations | 1M/month | 1M/day |
 | Available APIs | Full Node | Web standards + limited Node compat |
 | Native modules | Yes | No (Wasm only) |
 | Postgres direct | Yes | Use HTTP-based clients only |

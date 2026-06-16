@@ -2,11 +2,11 @@
 
 ## When you need Render
 
-Vercel can't handle:
-- **WebSockets** (functions are HTTP, 60 s max)
-- **Long-running orchestration** (60 s limit applies to every Edge/Serverless route)
-- **Sub-daily crons on Hobby** (`*/N`, `0 * * * *`, etc.)
-- **Stateful background workers** (queues, schedulers, daemons)
+Vercel functions now run up to 300 s on Hobby (Fluid Compute), so most "slow" routes fit there. Reach for Render when you need something genuinely **long-running or always-on** that a request/response function can't be:
+- **WebSocket hubs** (persistent connections — functions are request-scoped HTTP)
+- **Stateful background workers** (queues, schedulers, daemons that live between requests)
+- **Tasks that exceed 300 s** and can't be split or streamed (for unbounded work, Vercel Workflows is also an option — see `references/vercel.md`)
+- **Sub-daily crons on Hobby** (`*/N`, `0 * * * *`, etc. — Vercel Hobby cron is daily-only)
 - **Anything Docker-native** (Vercel runs Node/Python in their own runtime)
 
 Render covers all of these on the Free tier. Cloudflare Workers + Durable Objects is the alternative; Render is friendlier for traditional Docker apps.
@@ -17,7 +17,7 @@ Render covers all of these on the Free tier. Cloudflare Workers + Durable Object
 - **Sleeps after 15 min idle** — first request waits 30–60 s for cold start
 - **750 hr / month** active time. Single 24/7 service is fine.
 - **No private network on free**. Cross-service calls go through public HTTPS.
-- **PostgreSQL** is offered but is 90-day shutdown trap (database gets deleted). Use Supabase instead.
+- **PostgreSQL** is offered but is an expiry trap: free instances **expire 30 days after creation**, then sit in a **14-day grace period** before permanent deletion (~44 days total). Use Supabase instead.
 
 ## Blueprint = `render.yaml`
 

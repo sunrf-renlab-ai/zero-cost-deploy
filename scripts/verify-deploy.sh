@@ -9,6 +9,7 @@
 # Optional:
 #   LOCALES="en zh"   # locale prefixes to test against WEB_URL (skip if no i18n)
 #   PROTECTED_PATH=/api/internal/ping  # must return 401/403 without auth
+#   STRIPE_WEBHOOK_PATH=/api/stripe/webhook  # bad-signature POST must return 400
 
 set -euo pipefail
 
@@ -60,6 +61,22 @@ if [[ -n "${ORCH_URL:-}" ]]; then
     pass "GET $ORCH_URL/healthz → ok"
   else
     fail "GET $ORCH_URL/healthz → '$BODY' (expected 'ok' or {status:ok})"
+  fi
+fi
+
+# 5. Stripe webhook signature enforcement (optional)
+# POST a payload with a bogus Stripe-Signature; a correctly wired handler must
+# reject it at signature verification with 400 (not 200, 401, or 500).
+if [[ -n "${STRIPE_WEBHOOK_PATH:-}" ]]; then
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+    -X POST "$WEB_URL$STRIPE_WEBHOOK_PATH" \
+    -H "Content-Type: application/json" \
+    -H "Stripe-Signature: t=0,v1=deadbeef" \
+    --data '{"id":"evt_bad","object":"event"}')
+  if [[ "$CODE" == "400" ]]; then
+    pass "POST $WEB_URL$STRIPE_WEBHOOK_PATH (bad signature) → 400"
+  else
+    fail "POST $WEB_URL$STRIPE_WEBHOOK_PATH (bad signature) → $CODE (expected 400)"
   fi
 fi
 

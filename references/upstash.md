@@ -5,7 +5,7 @@
 - **Per-command pricing** — sleeps for free, scales for cents. No idle cost.
 - **HTTP REST API** — works through every network. No raw TCP needed.
 - **Multi-region read replicas on free** — Global tier is included.
-- **Generous free tier** — 10K commands/day is enough for prototypes + low-traffic prod.
+- **Generous free tier** — 500K commands/month is enough for prototypes + low-traffic prod.
 
 Alternatives considered:
 - **Redis Cloud free** — 30 MB cap, slower, no REST.
@@ -57,11 +57,12 @@ Vercel's default is iad1 (`us-east-1`) but Edge Functions run all over the place
 
 ## Free tier limits
 
-- **10,000 commands / day** — `MULTI`/`EXEC` counts as N commands. Pipelines count as one per command inside.
+- **500,000 commands / month** (changed 2025-03-12 from the old 10K/day model; quota now resets at the start of each billing month, not at UTC midnight daily) — `MULTI`/`EXEC` counts as N commands. Pipelines count as one per command inside.
 - **256 MB max storage**.
+- **10 GB / month bandwidth**.
 - **10K monthly active connections** (REST stateless, so this rarely bites).
 
-When you hit 10K/day: REST returns `429`. Retry-after present.
+When you hit the 500K monthly quota: REST returns `429`. Retry-after present. The counter clears when your billing month rolls over.
 
 ## Management API
 

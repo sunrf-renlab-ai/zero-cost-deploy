@@ -66,14 +66,14 @@ Each entry below is real — these blocked a deploy, sometimes for hours. If a f
 
 ---
 
-### 429 with `Daily request limit exceeded`
+### 429 with `Monthly request limit exceeded`
 
 **Symptom:** REST endpoint suddenly returns 429s for all commands.
 
-**Cause:** Free tier is 10,000 commands / day. Each Redis command counts; pipelines count N for N commands inside.
+**Cause:** Free tier is 500,000 commands / month (changed 2025-03-12 from the old 10K/day model). Each Redis command counts; pipelines count N for N commands inside.
 
 **Fix:**
-- Short-term: wait for the daily reset (UTC midnight).
+- Short-term: wait for the monthly reset (start of your billing month — not UTC midnight daily).
 - Long-term: cache aggressively, batch reads, or upgrade ($0.20 / 100K commands on Pro).
 
 ---
@@ -105,13 +105,13 @@ This is the #1 Render gotcha. **Always verify env immediately after Blueprint ap
 
 ---
 
-### Render Postgres free tier disappears after 90 days
+### Render Postgres free tier disappears after 30 days
 
-**Symptom:** Database returns "Database not found" three months after creation, even with active traffic.
+**Symptom:** Database stops accepting connections about a month after creation, even with active traffic, then returns "Database not found" two weeks later.
 
-**Cause:** Render's free Postgres has a hard 90-day deletion policy — they're explicit about it but easy to miss.
+**Cause:** Render's free Postgres **expires 30 days after creation**, then enters a **14-day grace period** before permanent deletion (~44 days total). They're explicit about it but easy to miss.
 
-**Fix:** Don't use Render Postgres. Use Supabase (which has no 90-day deletion). Render's strength is web services, not databases.
+**Fix:** Don't use Render Postgres. Use Supabase (which has no such expiry). Render's strength is web services, not databases.
 
 ---
 
